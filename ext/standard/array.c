@@ -4275,15 +4275,26 @@ static zend_always_inline void php_array_merge_wrapper(INTERNAL_FUNCTION_PARAMET
 			ret = &args[0];
 		}
 		if (ret) {
-			if (HT_IS_PACKED(Z_ARRVAL_P(ret))) {
-				if (HT_IS_WITHOUT_HOLES(Z_ARRVAL_P(ret))) {
+			HashTable *ht = Z_ARRVAL_P(ret);
+			/* An array that never had an integer key keeps the ZEND_LONG_MIN
+			 * sentinel; appending to it uses index 0. */
+			zend_long next_free = ht->nNextFreeElement == ZEND_LONG_MIN ? 0 : ht->nNextFreeElement;
+
+			/* array_merge() builds a new array: integer keys are renumbered from
+			 * zero, the next free index is reset and the internal pointer is
+			 * rewound to the first element. The argument may be returned as is
+			 * only when it already behaves like the result of that code path. */
+			if (HT_IS_PACKED(ht)) {
+				if (HT_IS_WITHOUT_HOLES(ht) &&
+					ht->nInternalPointer == 0 &&
+					next_free == (zend_long) ht->nNumOfElements) {
 					RETURN_COPY(ret);
 				}
-			} else {
+			} else if (next_free == 0 && ht->nInternalPointer == 0) {
 				bool copy = true;
 				zend_string *string_key;
 
-				ZEND_HASH_MAP_FOREACH_STR_KEY(Z_ARRVAL_P(ret), string_key) {
+				ZEND_HASH_MAP_FOREACH_STR_KEY(ht, string_key) {
 					if (!string_key) {
 						copy = false;
 						break;
